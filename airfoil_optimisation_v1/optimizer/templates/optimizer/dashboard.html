@@ -1,0 +1,212 @@
+{% load static %}
+
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Airfoil Optimization Demo</title>
+
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy: {
+              50: '#f7fafc',
+              100: '#edf2f7',
+              200: '#d9e2ec',
+              300: '#bcccdc',
+              400: '#829ab1',
+              500: '#627d98',
+              600: '#486581',
+              700: '#334e68',
+              800: '#243b53',
+              900: '#102a43'
+            },
+            cyanx: {
+              400: '#22d3ee',
+              500: '#06b6d4',
+              600: '#0891b2'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <link rel="stylesheet" href="{% static 'optimizer/css/style.css' %}">
+</head>
+
+<body class="h-full bg-navy-50 text-navy-900">
+<div id="app" class="min-h-screen flex flex-col overflow-hidden">
+
+  <!-- TOP BAR -->
+  <header class="h-[58px] bg-white border-b border-navy-100 px-6 flex items-center justify-between shadow-sm shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-navy-800 text-white flex items-center justify-center shadow-soft">
+        ✈
+      </div>
+
+      <div>
+        <h1 class="text-[15px] font-extrabold leading-tight tracking-tight">
+          Airfoil Optimization Demo
+        </h1>
+        <p class="text-[11px] text-navy-500 leading-tight">
+          TUSAŞ LIFT UP supported DRL-based aerodynamic profile optimization
+        </p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <span id="backendStatus" class="status-pill status-ready">
+        <span></span>
+        Model Ready
+      </span>
+    </div>
+  </header>
+
+  <div class="flex flex-1 min-h-0">
+
+    <!-- LEFT SIDEBAR -->
+    <aside class="w-[295px] shrink-0 bg-white border-r border-navy-100 p-5 overflow-y-auto">
+      <section class="sidebar-section">
+        <p class="section-title">DRL Model Selection</p>
+
+        <label class="model-option">
+          <input type="radio" name="modelSelect" value="PPO" checked>
+          <span>PPO</span>
+        </label>
+
+        <label class="model-option">
+          <input type="radio" name="modelSelect" value="TD3">
+          <span>TD3</span>
+        </label>
+
+        <label class="model-option">
+          <input type="radio" name="modelSelect" value="SAC">
+          <span>SAC</span>
+        </label>
+      </section>
+
+      <section class="mt-5 space-y-3">
+        <div>
+          <label class="form-label">Angle of Attack (°)</label>
+          <input id="aoa" type="number" value="2.5" step="0.1" class="form-input mono">
+        </div>
+
+        <div>
+          <label class="form-label">Reynolds Number</label>
+          <input id="reynolds" type="number" value="6000000" step="100000" class="form-input mono">
+        </div>
+
+        <div>
+          <label class="form-label">Upper Surface Weights</label>
+          <input id="upper" type="text" value="0.18, 0.22, 0.15, 0.10" class="form-input mono">
+        </div>
+
+        <div>
+          <label class="form-label">Lower Surface Weights</label>
+          <input id="lower" type="text" value="-0.08, -0.12, -0.09, -0.04" class="form-input mono">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="form-label">Leading Edge Wt.</label>
+            <input id="le" type="number" value="0.25" step="0.01" class="form-input mono">
+          </div>
+
+          <div>
+            <label class="form-label">Trailing Edge Off.</label>
+            <input id="te" type="number" value="0.002" step="0.001" class="form-input mono">
+          </div>
+        </div>
+
+        <button id="optimizeBtn" class="primary-btn">
+          ⚡ Optimize & Explain
+        </button>
+
+        <div id="modelStatus" class="model-status">
+          PPO model ready
+        </div>
+      </section>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 overflow-y-auto grid-bg p-6">
+
+      <!-- AIRFOIL CARD -->
+      <section class="panel-card mb-4">
+        <div class="flex items-start justify-between mb-3">
+          <div>
+            <h2 class="panel-title">Airfoil Profile Comparison</h2>
+            <p class="panel-subtitle">Initial vs. AI-optimized geometry overlay</p>
+          </div>
+
+          <div class="legend">
+            <span><i class="legend-line initial"></i> Initial</span>
+            <span><i class="legend-line optimized"></i> Optimized</span>
+          </div>
+        </div>
+
+        <div class="chart-shell">
+          <svg id="airfoilChart" width="100%" height="260" viewBox="0 0 820 260" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="optFill" x1="0" x2="1">
+                <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.10"/>
+                <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.03"/>
+              </linearGradient>
+            </defs>
+
+            <!-- grid -->
+            <g stroke="#e2e8f0" stroke-width="1">
+              <line x1="110" y1="25" x2="110" y2="220"/>
+              <line x1="270" y1="25" x2="270" y2="220"/>
+              <line x1="430" y1="25" x2="430" y2="220"/>
+              <line x1="590" y1="25" x2="590" y2="220"/>
+              <line x1="750" y1="25" x2="750" y2="220"/>
+              <line x1="110" y1="122" x2="750" y2="122"/>
+            </g>
+
+            <text x="36" y="128" class="axis-label" transform="rotate(-90 36 128)">y/c</text>
+            <text x="420" y="250" class="axis-label">x/c</text>
+
+            <text x="105" y="238" class="axis-tick">0.0</text>
+            <text x="265" y="238" class="axis-tick">0.25</text>
+            <text x="425" y="238" class="axis-tick">0.50</text>
+            <text x="585" y="238" class="axis-tick">0.75</text>
+            <text x="745" y="238" class="axis-tick">1.0</text>
+
+            <path id="initialAirfoil" fill="none" stroke="#9fb3c8" stroke-width="2.2"/>
+            <path id="optimizedAirfoil" fill="url(#optFill)" stroke="#06b6d4" stroke-width="2.6"/>
+          </svg>
+        </div>
+      </section>
+
+      <!-- METRICS -->
+      <section id="metrics" class="grid grid-cols-5 gap-4 mb-4"></section>
+
+      <!-- DETAIL GRID -->
+      <section class="grid grid-cols-2 gap-4 mb-4">
+        <div id="constraints" class="panel-card"></div>
+        <div id="xai" class="panel-card"></div>
+      </section>
+
+      <section class="grid grid-cols-2 gap-4">
+        <div id="decisionLogic" class="panel-card"></div>
+        <div id="pipeline" class="panel-card"></div>
+      </section>
+
+      <section id="experiment" class="panel-card mt-4"></section>
+
+    </main>
+  </div>
+</div>
+
+<script src="{% static 'optimizer/js/app.js' %}"></script>
+</body>
+</html>
