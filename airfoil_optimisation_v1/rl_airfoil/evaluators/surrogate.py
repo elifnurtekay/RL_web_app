@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Any
@@ -160,15 +161,19 @@ class SurrogateEvaluator(Evaluator):
 
     def _detect_torchscript_raw_re(self, model: torch.nn.Module) -> bool:
         """
-        Senin modelinde forward içinde:
-            re = clamp(last_column)
-            re_feat = log10(re)
-        var. Bu, modelin inputta ham Re beklediği anlamına gelir.
+        TorchScript wrapper forward içinde log10(Re) uyguluyorsa,
+        son input kolonunda ham Reynolds bekliyor demektir.
+
+        Eski kontrol sadece "log10" + "x_raw" arıyordu.
+        Bazı TorchScript modellerde değişken adı x_raw olmayabilir.
+        Bu nedenle log10 görülmesi ham Re beklentisi için yeterli sinyal kabul edilir.
         """
         try:
             code = str(model.code).lower()
-            if "log10" in code and "x_raw" in code:
+
+            if "log10" in code:
                 return True
+
         except Exception:
             pass
 
@@ -209,37 +214,63 @@ class SurrogateEvaluator(Evaluator):
         if not self.checkpoint_path.exists():
             raise FileNotFoundError(f"Surrogate checkpoint not found: {self.checkpoint_path}")
 
-        # Senin surrogate_s1d.pt dosyan TorchScript archive.
-        # Bu nedenle torch.load yerine önce torch.jit.load denenmeli.
+        self._last_jit_load_error = ""
+
+        # TorchScript archive ise önce kesin olarak torch.jit.load denenir.
         if zipfile.is_zipfile(self.checkpoint_path):
             try:
-                model = torch.jit.load(str(self.checkpoint_path), map_location=self.device)
+                # Windows + OneDrive + Türkçe karakterli path sorunlarını önlemek için
+                # TorchScript dosyasını doğrudan path ile değil, binary buffer ile yüklüyoruz.
+                with open(self.checkpoint_path, "rb") as f:
+                    buffer = io.BytesIO(f.read())
+
+                model = torch.jit.load(buffer, map_location=self.device)
                 model.eval()
 
                 self._torchscript_has_scaler = self._detect_torchscript_scaler(model)
                 self._torchscript_expects_raw_re = self._detect_torchscript_raw_re(model)
 
+                print("[SURROGATE] Loaded with torch.jit.load from BytesIO")
+                print(f"[SURROGATE] torchscript_has_scaler={self._torchscript_has_scaler}")
+                print(f"[SURROGATE] torchscript_expects_raw_re={self._torchscript_expects_raw_re}")
+
                 return model
-            except Exception:
-                pass
+
+            except Exception as exc:
+                self._last_jit_load_error = str(exc)
+                print("[SURROGATE] torch.jit.load from BytesIO failed:", self._last_jit_load_error)
 
         ckpt = self._torch_load(self.checkpoint_path)
 
         if isinstance(ckpt, nn.Module):
             model = ckpt.to(self.device)
             model.eval()
+
+            # Önemli düzeltme:
+            # torch.load bazı TorchScript archive dosyalarını içeride torch.jit.load'a yönlendirebilir.
+            # Bu durumda model nn.Module gibi görünse bile TorchScript wrapper olabilir.
+            # Bayrakları burada da tekrar set etmezsek external scaler yanlışlıkla uygulanabilir.
+            self._torchscript_has_scaler = self._detect_torchscript_scaler(model)
+            self._torchscript_expects_raw_re = self._detect_torchscript_raw_re(model)
+
             return model
 
         if isinstance(ckpt, dict) and "model" in ckpt and isinstance(ckpt["model"], nn.Module):
             model = ckpt["model"].to(self.device)
             model.eval()
+
+            self._torchscript_has_scaler = self._detect_torchscript_scaler(model)
+            self._torchscript_expects_raw_re = self._detect_torchscript_raw_re(model)
+
             return model
 
         state_dict = self._extract_state_dict(ckpt)
+
         if state_dict is None:
             raise TypeError(
                 "Unsupported checkpoint format. Expected TorchScript, nn.Module, "
-                "or a checkpoint containing state_dict/model_state_dict."
+                "or a checkpoint containing state_dict/model_state_dict. "
+                f"Last torch.jit.load error: {self._last_jit_load_error}"
             )
 
         model = ResMLPSurrogate(
@@ -259,6 +290,7 @@ class SurrogateEvaluator(Evaluator):
         ]
 
         last_error = None
+
         for candidate in candidate_states:
             try:
                 model.load_state_dict(candidate, strict=True)
@@ -269,7 +301,8 @@ class SurrogateEvaluator(Evaluator):
 
         raise RuntimeError(
             "Checkpoint is a state_dict, but its layer names do not match "
-            f"ResMLPSurrogate. Last load error: {last_error}"
+            f"ResMLPSurrogate. Last load error: {last_error}. "
+            f"Last torch.jit.load error: {self._last_jit_load_error}"
         )
 
     def _load_artifacts(self) -> SurrogateArtifacts:
@@ -312,17 +345,26 @@ class SurrogateEvaluator(Evaluator):
             axis=0,
         ).reshape(1, -1).astype(np.float32)
 
-    def _raw_features_for_external_scaler(self, cst: np.ndarray, aoa: float, re: float) -> np.ndarray:
+    def _raw_features_for_external_scaler(
+        self,
+        cst: np.ndarray,
+        aoa: float,
+        re: float,
+        use_log_re: bool = True,
+    ) -> np.ndarray:
         """
         State_dict / normal PyTorch model için input:
-            8 CST + AoA + log10(Re)
+            8 CST + AoA + Re özelliği
 
-        Çünkü bu durumda scaler dışarıda uygulanır.
+        scalers.json içinde use_log_re=true ise son kolon log10(Re),
+        use_log_re=false ise son kolon ham Re olur.
         """
+        re_value = np.log10(re) if use_log_re else re
+
         return np.concatenate(
             [
                 np.asarray(cst, dtype=np.float32).reshape(8),
-                np.array([aoa, np.log10(re)], dtype=np.float32),
+                np.array([aoa, re_value], dtype=np.float32),
             ],
             axis=0,
         ).reshape(1, -1).astype(np.float32)
@@ -332,13 +374,25 @@ class SurrogateEvaluator(Evaluator):
             if self.artifacts.torchscript_expects_raw_re:
                 return self._raw_features_for_wrapper(cst, aoa, re)
 
-            # Nadir durum: TorchScript scaler içeriyor ama Re dönüşümünü içeride yapmıyor.
-            return self._raw_features_for_external_scaler(cst, aoa, re)
+            # TorchScript scaler içeriyor ama içeride log10(Re) almıyorsa,
+            # dışarıda log10(Re) hazırlanır.
+            return self._raw_features_for_external_scaler(
+                cst,
+                aoa,
+                re,
+                use_log_re=True,
+            )
 
         if self.artifacts.scaler is None:
             raise RuntimeError("Scaler is required for non-wrapper surrogate model.")
 
-        x_raw = self._raw_features_for_external_scaler(cst, aoa, re)
+        x_raw = self._raw_features_for_external_scaler(
+            cst,
+            aoa,
+            re,
+            use_log_re=bool(self.artifacts.scaler.use_log_re),
+        )
+
         return self.artifacts.scaler.transform_x(x_raw).astype(np.float32)
 
     def evaluate(self, cst: np.ndarray, aoa: float, re: float) -> AeroOutput:

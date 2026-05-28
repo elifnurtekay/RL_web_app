@@ -49,6 +49,9 @@ class RealRLModelOptimizer(AerodynamicOptimizer):
 
     def optimize(self, optimization_input: OptimizationInput) -> dict:
         algorithm = str(optimization_input.model).upper().strip()
+        print("=" * 80)
+        print(f"[WEB INFERENCE] Selected algorithm: {algorithm}")
+        print("=" * 80)
 
         if algorithm not in self.MODEL_CLASSES:
             raise ValueError("Unsupported model. Use PPO, TD3, or SAC.")
@@ -205,7 +208,13 @@ class RealRLModelOptimizer(AerodynamicOptimizer):
             getattr(settings, "RL_WEB_EVALUATOR", meta.get("evaluator", "surrogate"))
         ).lower()
 
-        cfg.surrogate_model_name = str(meta.get("surrogate_model_name", "S-3D"))
+        cfg.surrogate_model_name = str(
+            getattr(
+                settings,
+                "RL_SURROGATE_MODEL_NAME",
+                meta.get("surrogate_model_name", "S-3D"),
+            )
+        )
         cfg.surrogate_checkpoint_path = str(surrogate_path)
         cfg.scaler_json_path = str(scaler_path)
         cfg.rl_checkpoint_path = str(model_path)
@@ -396,7 +405,21 @@ class RealRLModelOptimizer(AerodynamicOptimizer):
             return self._MODEL_CACHE[cache_key]
 
         model_cls = self.MODEL_CLASSES[algorithm]
-        model = model_cls.load(str(path), device="cpu")
+
+        print(f"[WEB INFERENCE] Loading RL model: {algorithm}")
+        print(f"[WEB INFERENCE] Model path: {path}")
+
+        model = model_cls.load(
+            str(path),
+            device="cpu",
+            custom_objects={
+                "learning_rate": 0.0,
+                "lr_schedule": lambda _: 0.0,
+                "clip_range": lambda _: 0.2,
+            },
+        )
+
+        print(f"[WEB INFERENCE] Loaded RL model class: {type(model).__name__}")
 
         self._MODEL_CACHE.clear()
         self._MODEL_CACHE[cache_key] = model

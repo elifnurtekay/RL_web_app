@@ -28,10 +28,23 @@ let previousMetrics = {
 };
 
 function parseWeights(value) {
-  return value
-    .split(',')
+  const raw = String(value).trim();
+
+  if (!raw) {
+    return [];
+  }
+
+  // Standart önerilen format:
+  // 0.20, 0.18, 0.14, 0.10
+  //
+  // Türkçe decimal yazılacaksa:
+  // 0,20; 0,18; 0,14; 0,10
+  const separator = raw.includes(';') ? ';' : ',';
+
+  return raw
+    .split(separator)
     .map((x) => Number(x.trim().replace(',', '.')))
-    .filter((x) => !Number.isNaN(x));
+    .filter((x) => Number.isFinite(x));
 }
 
 function parseNumberInput(id, label) {
@@ -374,12 +387,12 @@ function getPayload() {
   const upperWeights = parseWeights($('upper').value);
   const lowerWeights = parseWeights($('lower').value);
 
-  if (upperWeights.length === 0) {
-    throw new Error('Upper Surface Weights cannot be empty.');
+  if (upperWeights.length !== 4) {
+    throw new Error('Upper Surface Weights must contain exactly 4 values.');
   }
 
-  if (lowerWeights.length === 0) {
-    throw new Error('Lower Surface Weights cannot be empty.');
+  if (lowerWeights.length !== 4) {
+    throw new Error('Lower Surface Weights must contain exactly 4 values.');
   }
 
   return {
