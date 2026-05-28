@@ -1,0 +1,107 @@
+{
+  "experiment_id": "run_1779044844",
+  "algorithm": "PPO",
+  "evaluator": "surrogate",
+  "surrogate_model_name": "S-3D",
+  "surrogate_checkpoint_path": ".\\checkpoints\\surrogate_s3d.pt",
+  "scaler_json_path": ".\\checkpoints\\scalers.json",
+  "rl_checkpoint_path": "logs\\ppo\\run_1779044844\\ppo_surrogate_s-3d.zip",
+  "rl_checkpoint_filename": "ppo_surrogate_s-3d.zip",
+  "seed": 42,
+  "total_timesteps": 200000,
+  "episode_max_steps": 25,
+  "action_range": [
+    -1.0,
+    1.0
+  ],
+  "action_scale": 0.003,
+  "cst_bounds": [
+    -0.35,
+    0.35
+  ],
+  "initial_cst": [
+    0.2,
+    0.18,
+    0.14,
+    0.1,
+    -0.12,
+    -0.1,
+    -0.08,
+    -0.05
+  ],
+  "initial_cst_noise_std": 0.005,
+  "AoA": 2.0,
+  "Re": 1000000.0,
+  "log10_Re": 6.0,
+  "reward_weights": {
+    "w1": 1.0,
+    "w2": 10.0,
+    "w3": 10.0,
+    "w_local_thickness": 20.0,
+    "w_action": 0.05
+  },
+  "constraints": {
+    "CM": [
+      -0.12,
+      0.02
+    ],
+    "t/c": [
+      0.08,
+      0.18
+    ]
+  },
+  "cd_lower_bound": 1e-06,
+  "invalid_geometry_penalty": 100.0,
+  "solver_error_penalty": 100.0,
+  "td3_hyperparameters": {
+    "learning_rate": 0.001,
+    "buffer_size": 100000,
+    "learning_starts": 1000,
+    "batch_size": 256,
+    "tau": 0.005,
+    "gamma": 0.99,
+    "train_freq": 1,
+    "gradient_steps": 1,
+    "policy_delay": 2,
+    "target_policy_noise": 0.2,
+    "target_noise_clip": 0.5,
+    "action_noise_sigma": 0.1
+  },
+  "sac_hyperparameters": {
+    "learning_rate": 0.0003,
+    "buffer_size": 100000,
+    "learning_starts": 5000,
+    "batch_size": 256,
+    "tau": 0.005,
+    "gamma": 0.99,
+    "train_freq": 1,
+    "gradient_steps": 1,
+    "ent_coef": "auto",
+    "target_entropy": "auto"
+  },
+  "ppo_hyperparameters": {
+    "learning_rate_start": 0.0003,
+    "learning_rate_end": 3e-05,
+    "n_steps": 1024,
+    "batch_size": 256,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.0,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "normalize_advantage": true
+  },
+  "geometry_config": {
+    "n_points": 201,
+    "min_local_thickness_required": 0.005,
+    "max_abs_surface_y": 0.75
+  },
+  "normalization_stats": {
+    "observation": "8 CST + AoA + Re_norm + log10_Re + CL + CD + CM + CL_CD + t_c",
+    "surrogate_input": "8 CST + AoA + Re/log10(Re), depending on TorchScript wrapper",
+    "action_scale": 0.003
+  },
+  "code_commit_hash": "b58a57038ae8b2914615e013530ea9cc7d6bb495"
+}
