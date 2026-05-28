@@ -56,3 +56,31 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'optimizer' / 'static']
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ============================================================
+# Real PPO / TD3 / SAC model inference settings
+# ============================================================
+
+MODEL_ARTIFACTS_DIR = BASE_DIR / "model_artifacts"
+
+RL_MODEL_ARTIFACTS = {
+    "PPO": {
+        "model_path": MODEL_ARTIFACTS_DIR / "models" / "ppo_model.zip",
+        "metadata_path": MODEL_ARTIFACTS_DIR / "models" / "ppo_metadata.json",
+    },
+    "TD3": {
+        "model_path": MODEL_ARTIFACTS_DIR / "models" / "td3_model.zip",
+        "metadata_path": MODEL_ARTIFACTS_DIR / "models" / "td3_metadata.json",
+    },
+    "SAC": {
+        "model_path": MODEL_ARTIFACTS_DIR / "models" / "sac_model.zip",
+        "metadata_path": MODEL_ARTIFACTS_DIR / "models" / "sac_metadata.json",
+    },
+}
+
+RL_SURROGATE_MODEL_NAME = "S-3D"
+RL_SURROGATE_CHECKPOINT_PATH = MODEL_ARTIFACTS_DIR / "surrogate" / "surrogate_s3d.pt"
+RL_SCALER_JSON_PATH = MODEL_ARTIFACTS_DIR / "surrogate" / "scalers.json"
+
+RL_WEB_EVALUATOR = "surrogate"
+

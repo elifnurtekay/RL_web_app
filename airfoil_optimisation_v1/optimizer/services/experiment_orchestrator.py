@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, UTC
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from hashlib import sha256
 import json
 

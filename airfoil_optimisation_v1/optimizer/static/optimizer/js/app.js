@@ -34,6 +34,23 @@ function parseWeights(value) {
     .filter((x) => !Number.isNaN(x));
 }
 
+function parseNumberInput(id, label) {
+  const el = $(id);
+
+  if (!el) {
+    throw new Error(`${label} input was not found.`);
+  }
+
+  const raw = String(el.value).trim().replace(',', '.');
+  const value = Number(raw);
+
+  if (!Number.isFinite(value)) {
+    throw new Error(`${label} must be a valid number.`);
+  }
+
+  return value;
+}
+
 function setBackendStatus(type, text) {
   if (!backendStatus) return;
   backendStatus.className = `status-pill status-${type}`;
@@ -42,10 +59,20 @@ function setBackendStatus(type, text) {
 
 function setButtonLoading(isLoading) {
   const btn = $('optimizeBtn');
+
+  if (!btn) {
+    return;
+  }
+
   const icon = btn.querySelector('.btn-icon');
   const label = btn.querySelector('.btn-label');
 
   btn.disabled = isLoading;
+
+  if (!icon || !label) {
+    btn.textContent = isLoading ? 'Analyzing...' : '⚡ Optimize & Explain';
+    return;
+  }
 
   if (isLoading) {
     icon.textContent = '';
@@ -338,16 +365,31 @@ function renderResult(result) {
 }
 
 function getPayload() {
-  const model = document.querySelector('input[name="modelSelect"]:checked').value;
+  const selectedModel = document.querySelector('input[name="modelSelect"]:checked');
+
+  if (!selectedModel) {
+    throw new Error('Please select a DRL model.');
+  }
+
+  const upperWeights = parseWeights($('upper').value);
+  const lowerWeights = parseWeights($('lower').value);
+
+  if (upperWeights.length === 0) {
+    throw new Error('Upper Surface Weights cannot be empty.');
+  }
+
+  if (lowerWeights.length === 0) {
+    throw new Error('Lower Surface Weights cannot be empty.');
+  }
 
   return {
-    model,
-    aoa: Number($('aoa').value),
-    reynolds: Number($('reynolds').value),
-    upper_weights: parseWeights($('upper').value),
-    lower_weights: parseWeights($('lower').value),
-    leading_edge_weight: Number($('le').value),
-    trailing_edge_offset: Number($('te').value)
+    model: selectedModel.value,
+    aoa: parseNumberInput('aoa', 'Angle of Attack'),
+    reynolds: parseNumberInput('reynolds', 'Reynolds Number'),
+    upper_weights: upperWeights,
+    lower_weights: lowerWeights,
+    leading_edge_weight: parseNumberInput('le', 'Leading Edge Weight'),
+    trailing_edge_offset: parseNumberInput('te', 'Trailing Edge Offset')
   };
 }
 

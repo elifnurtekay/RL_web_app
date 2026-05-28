@@ -126,8 +126,9 @@
           </div>
         </div>
 
-        <button id="optimizeBtn" class="primary-btn">
-          ⚡ Optimize & Explain
+        <button id="optimizeBtn" class="primary-btn" type="button">
+          <span class="btn-icon">⚡</span>
+          <span class="btn-label">Optimize & Explain</span>
         </button>
 
         <div id="modelStatus" class="model-status">
@@ -182,7 +183,28 @@
             <text x="745" y="238" class="axis-tick">1.0</text>
 
             <path id="initialAirfoil" fill="none" stroke="#9fb3c8" stroke-width="2.2"/>
-            <path id="optimizedAirfoil" fill="url(#optFill)" stroke="#06b6d4" stroke-width="2.6"/>
+
+            <path
+              id="optimizedAirfoilFill"
+              fill="url(#optFill)"
+              stroke="none"
+              opacity="0"
+            />
+
+            <path
+              id="optimizedAirfoilStroke"
+              fill="none"
+              stroke="#06b6d4"
+              stroke-width="2.6"
+              opacity="0"
+            />
+
+            <circle
+              id="flowMarker"
+              r="4.5"
+              fill="#06b6d4"
+              opacity="0"
+            />
           </svg>
         </div>
       </section>

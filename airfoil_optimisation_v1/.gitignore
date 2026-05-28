@@ -43,3 +43,10 @@ node_modules/
 dist/
 build/
 *.egg-info/
+
+# Trained model artifacts
+model_artifacts/
+*.zip
+*.pt
+*.pth
+*.ckpt

@@ -8,8 +8,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from .services.experiment_orchestrator import LLMExperimentOrchestrator
+from .services.real_rl_solver import RealRLModelOptimizer
 from .services.solver_interface import OptimizationInput
-from .services.surrogate_solver import ResMLPSurrogateOptimizer
 from .services.xai_analyzer import XAIPolicyAnalyzer
 
 
@@ -18,7 +18,7 @@ class DashboardView(View):
         return render(request, "optimizer/dashboard.html")
 
 
-def _parse_float_list(values, field_name):
+def _parse_float_list(values, field_name, expected_len=None):
     if not isinstance(values, list):
         raise ValueError(f"{field_name} must be a list.")
 
@@ -26,6 +26,11 @@ def _parse_float_list(values, field_name):
 
     if len(parsed) == 0:
         raise ValueError(f"{field_name} cannot be empty.")
+
+    if expected_len is not None and len(parsed) != expected_len:
+        raise ValueError(
+            f"{field_name} must contain exactly {expected_len} values."
+        )
 
     return parsed
 
@@ -50,14 +55,22 @@ def optimize_airfoil(request):
         data = OptimizationInput(
             aoa=float(payload["aoa"]),
             reynolds=float(payload["reynolds"]),
-            upper_weights=_parse_float_list(payload["upper_weights"], "upper_weights"),
-            lower_weights=_parse_float_list(payload["lower_weights"], "lower_weights"),
-            leading_edge_weight=float(payload["leading_edge_weight"]),
-            trailing_edge_offset=float(payload["trailing_edge_offset"]),
+            upper_weights=_parse_float_list(
+                payload["upper_weights"],
+                "upper_weights",
+                expected_len=4,
+            ),
+            lower_weights=_parse_float_list(
+                payload["lower_weights"],
+                "lower_weights",
+                expected_len=4,
+            ),
+            leading_edge_weight=float(payload.get("leading_edge_weight", 0.0)),
+            trailing_edge_offset=float(payload.get("trailing_edge_offset", 0.0)),
             model=model,
         )
 
-        optimizer = ResMLPSurrogateOptimizer()
+        optimizer = RealRLModelOptimizer()
         result = optimizer.optimize(data)
 
         orchestrator = LLMExperimentOrchestrator()
