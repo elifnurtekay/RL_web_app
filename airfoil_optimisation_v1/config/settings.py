@@ -84,3 +84,7 @@ RL_SCALER_JSON_PATH = MODEL_ARTIFACTS_DIR / "surrogate" / "scalers.json"
 
 RL_WEB_EVALUATOR = "surrogate"
 
+
+# Offline-trained local XAI proxy artifacts. Missing files are reported in the
+# API response as available:false instead of failing the optimize endpoint.
+XAI_ARTIFACT_ROOT = BASE_DIR / "xai_artifacts"

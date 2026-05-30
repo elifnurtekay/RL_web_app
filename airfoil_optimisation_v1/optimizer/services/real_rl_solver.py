@@ -392,6 +392,50 @@ class RealRLModelOptimizer(AerodynamicOptimizer):
 
         return np.clip(cst, cst_min, cst_max).astype(np.float32)
 
+    def make_solver_fn(self, optimization_input: OptimizationInput):
+        """Build an adapter for the configured surrogate/XFOIL evaluator.
+
+        The XAI counterfactual layer calls this function with perturbed CST8
+        coefficients so it uses the exact same evaluator configuration as the
+        web optimization path.
+        """
+        algorithm = str(optimization_input.model).upper().strip()
+        cfg = self._build_config_from_metadata_json(
+            algorithm=algorithm,
+            optimization_input=optimization_input,
+        )
+        evaluator = self._make_evaluator(cfg)
+
+        def solver_fn(cst: list[float], aoa: float, re: float) -> dict:
+            aero = evaluator.evaluate(np.asarray(cst, dtype=np.float32).reshape(8), float(aoa), float(re))
+            cl = self._safe_float(aero.cl, 0.0)
+            cd = self._safe_float(aero.cd, float(cfg.cd_lower_bound))
+            cm = self._safe_float(aero.cm, 0.0)
+            tc = self._safe_float(aero.tc, 0.0)
+            cl_cd = cl / max(cd, float(cfg.cd_lower_bound))
+            geom = aero.geometry_features or {}
+            return {
+                "CL": float(cl),
+                "CD": float(cd),
+                "CM": float(cm),
+                "CL_CD": float(cl_cd),
+                "t_c": float(tc),
+                "is_geometry_valid": bool(aero.is_geometry_valid),
+                "solver_status": str(aero.solver_status),
+                "solver_error_message": str(aero.solver_error_message),
+                "geometry_features": {
+                    key: (
+                        float(value)
+                        if isinstance(value, (int, float, np.floating, np.integer))
+                        else bool(value)
+                    )
+                    for key, value in geom.items()
+                    if isinstance(value, (int, float, np.floating, np.integer, bool, np.bool_))
+                },
+            }
+
+        return solver_fn
+
     def _load_model(self, algorithm: str, checkpoint_path: str):
         path = Path(checkpoint_path).expanduser().resolve()
 
@@ -524,6 +568,59 @@ class RealRLModelOptimizer(AerodynamicOptimizer):
 
         return bool(local_ok)
 
+    def _format_trajectory_step(self, record: dict, cfg: ExperimentConfig) -> dict:
+        info = record.get("info", {})
+        cst = np.asarray(record.get("cst", np.zeros(8)), dtype=np.float32).reshape(8)
+        action = np.asarray(record.get("action", np.zeros(8)), dtype=np.float32).reshape(8)
+        cl = self._safe_float(info.get("CL"), 0.0)
+        cd = self._safe_float(info.get("CD"), 1.0)
+        cm = self._safe_float(info.get("CM"), 0.0)
+        tc = self._safe_float(info.get("t_c"), 0.0)
+        cl_cd = self._safe_float(info.get("CL_CD"), cl / max(cd, float(cfg.cd_lower_bound)))
+        step = {
+            "step_id": int(record.get("step_id", 0)),
+            "cst": [float(x) for x in cst],
+            "action": [float(x) for x in action],
+            "AoA": float(cfg.aoa),
+            "Re": float(cfg.re),
+            "log10_Re": float(math.log10(max(float(cfg.re), 1.0))),
+            "CL": float(cl),
+            "CD": float(cd),
+            "CM": float(cm),
+            "CL_CD": float(cl_cd),
+            "t_c": float(tc),
+            "reward_total": self._safe_float(info.get("reward_total", record.get("reward")), 0.0),
+            "reward": self._safe_float(record.get("reward"), 0.0),
+            "penalty_total": self._safe_float(info.get("penalty_total"), 0.0),
+            "is_CM_feasible": self._as_bool(info.get("is_CM_feasible", False)),
+            "is_tc_feasible": self._as_bool(info.get("is_tc_feasible", False)),
+            "is_geometry_valid": self._as_bool(info.get("is_geometry_valid", False)),
+            "is_feasible": bool(record.get("is_feasible", False)),
+            "is_strict_safe": bool(record.get("is_strict_safe", False)),
+            "solver_status": str(info.get("solver_status", "")),
+            "done_reason": str(info.get("done_reason", "")),
+            "terminated": bool(record.get("terminated", False)),
+            "truncated": bool(record.get("truncated", False)),
+            "done": bool(record.get("done", False)),
+            "action_norm": float(np.linalg.norm(action)),
+            "upper_action_norm": float(np.linalg.norm(action[:4])),
+            "lower_action_norm": float(np.linalg.norm(action[4:])),
+        }
+        optional_keys = [
+            "Q_min", "Q_disagreement", "Q1", "Q2", "actor_std_mean",
+            "policy_entropy", "alpha", "value_V", "advantage", "policy_std_mean",
+            "max_thickness", "x_max_thickness", "max_camber", "x_max_camber",
+            "leading_edge_radius_proxy", "trailing_edge_thickness",
+            "upper_surface_curvature_mean", "lower_surface_curvature_mean",
+            "surface_smoothness", "min_local_thickness", "area_proxy",
+        ]
+        for key in optional_keys:
+            if key in info:
+                value = self._safe_float(info.get(key), None)
+                if value is not None:
+                    step[key] = value
+        return step
+
     def _geometry_from_cst(self, cst: np.ndarray, n_points: int = 201) -> dict:
         cst = np.asarray(cst, dtype=np.float64).reshape(8)
         x = np.linspace(0.0, 1.0, int(n_points), dtype=np.float64)
@@ -576,6 +673,7 @@ class RealRLModelOptimizer(AerodynamicOptimizer):
         ).to_dict()
 
         action = np.asarray(selected_record["action"], dtype=np.float32).reshape(8)
+        trajectory = [self._format_trajectory_step(record, cfg) for record in records]
 
         return {
             "status": "ok",
@@ -622,6 +720,7 @@ class RealRLModelOptimizer(AerodynamicOptimizer):
                 "Constraint verification completed",
                 "Optimized geometry generated",
             ],
+            "trajectory": trajectory,
             "geometry": {
                 "initial": self._geometry_from_cst(
                     initial_cst,
