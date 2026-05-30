@@ -299,28 +299,60 @@ function renderConstraints(result) {
   `;
 }
 
-function renderXAI(result) {
-  const items = result.xai?.feature_importance || [];
+function formatXaiFeatureList(items) {
+  if (!items || !items.length) return '<span class="small-muted">No local SHAP features available.</span>';
+  return items.slice(0, 3).map((item) => `
+    <div class="xai-row">
+      <span>${item.feature}</span>
+      <strong>${Number(item.impact).toExponential(2)}</strong>
+    </div>
+  `).join('');
+}
 
-  const safeItems = items.length
-    ? items
-    : [
-        { feature: 'SHAP Values', score: 0 },
-        { feature: 'LIME Impact', score: 0 },
-        { feature: 'Feature Importance', score: 0 }
-      ];
+function firstAvailableTarget(targets) {
+  if (!targets) return null;
+  return Object.entries(targets).find(([, value]) => value && value.available) || null;
+}
+
+function renderXAI(result) {
+  const xai = result.xai || {};
+  const target = xai.target_step || {};
+  const surrogateEntry = firstAvailableTarget(xai.surrogate_xai?.targets);
+  const policyEntry = firstAvailableTarget(xai.policy_xai?.targets);
+  const trajectory = xai.trajectory_xai || {};
+  const counterfactual = xai.counterfactual_xai || {};
+
+  const surrogateHtml = surrogateEntry
+    ? formatXaiFeatureList(surrogateEntry[1].shap?.top_overall)
+    : `<span class="small-muted">${xai.surrogate_xai?.targets ? 'Surrogate artifact not found.' : 'Surrogate XAI unavailable.'}</span>`;
+
+  const policyHtml = policyEntry
+    ? formatXaiFeatureList(policyEntry[1].shap?.top_overall)
+    : `<span class="small-muted">${xai.policy_xai?.targets ? 'Policy artifact not found.' : 'Policy XAI unavailable.'}</span>`;
 
   xaiEl.innerHTML = `
-    <h3 class="panel-title with-icon purple">◈ Model Explainability (XAI)</h3>
-    ${safeItems.slice(0, 3).map((item, index) => {
-      const label = index === 0 ? 'SHAP Values' : index === 1 ? 'LIME Impact' : item.feature;
-      return `
-        <div class="xai-row">
-          <span>${label}</span>
-          <strong>${Number(item.score).toFixed(3)}</strong>
-        </div>
-      `;
-    }).join('')}
+    <h3 class="panel-title with-icon purple">◈ Local XAI</h3>
+
+    <div class="logic-row">
+      <strong>Target Step:</strong> #${target.step_id ?? '—'} · ${target.selection_reason || '—'}
+    </div>
+
+    <div class="mt-3 small-muted">Aerodynamic local explanation</div>
+    ${surrogateHtml}
+
+    <div class="mt-3 small-muted">Policy local explanation</div>
+    ${policyHtml}
+
+    <div class="mt-3 logic-row">
+      <strong>Trajectory:</strong>
+      feasible ${trajectory.feasible_step_count ?? '—'}/${trajectory.num_steps ?? '—'},
+      selected C<sub>L</sub>/C<sub>D</sub> ${trajectory.selected_CL_CD ? Number(trajectory.selected_CL_CD).toFixed(1) : '—'}
+    </div>
+
+    <div class="logic-row">
+      <strong>Counterfactual:</strong>
+      ${counterfactual.available ? `${counterfactual.all_evaluated_count} perturbations, ${counterfactual.safe_count} safe` : (counterfactual.reason || 'unavailable')}
+    </div>
   `;
 }
 

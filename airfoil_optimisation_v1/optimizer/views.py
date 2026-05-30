@@ -10,7 +10,8 @@ from django.views.decorators.http import require_POST
 from .services.experiment_orchestrator import LLMExperimentOrchestrator
 from .services.real_rl_solver import RealRLModelOptimizer
 from .services.solver_interface import OptimizationInput
-from .services.xai_analyzer import XAIPolicyAnalyzer
+from django.conf import settings
+from xai.xai_service import XAIService
 
 
 class DashboardView(View):
@@ -77,7 +78,28 @@ def optimize_airfoil(request):
         context = orchestrator.create_context(payload)
         experiment = orchestrator.summarize(context, result)
 
-        xai = XAIPolicyAnalyzer().analyze(payload, result)
+        solver_fn = optimizer.make_solver_fn(data)
+        xai = XAIService(
+            artifact_root=getattr(settings, "XAI_ARTIFACT_ROOT", settings.BASE_DIR / "xai_artifacts")
+        ).explain_optimized_airfoil(
+            algorithm=model,
+            user_input=payload,
+            trajectory=result.get("trajectory", []),
+            optimized_result={
+                "step_id": result.get("rl_diagnostics", {}).get("selected_step_id"),
+                "cst": result.get("rl_diagnostics", {}).get("optimized_cst"),
+                "AoA": data.aoa,
+                "Re": data.reynolds,
+                "CL": result.get("metrics", {}).get("cl"),
+                "CD": result.get("metrics", {}).get("cd"),
+                "CM": result.get("metrics", {}).get("cm"),
+                "CL_CD": result.get("metrics", {}).get("cl_cd"),
+                "t_c": result.get("metrics", {}).get("tc"),
+                "is_feasible": result.get("metrics", {}).get("is_feasible"),
+                "is_geometry_valid": True,
+            },
+            solver_fn=solver_fn,
+        )
 
         result["experiment"] = experiment
         result["xai"] = xai

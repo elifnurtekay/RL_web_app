@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from .config import XAIArtifactConfig
+from .counterfactual_explainer import CounterfactualExplainer
+from .feature_builder import build_feature_row
+from .llm_payload_builder import LLMPayloadBuilder
+from .policy_explainer import PolicyExplainer
+from .surrogate_explainer import SurrogateExplainer
+from .target_selector import select_xai_target_step
+from .trajectory_explainer import TrajectoryExplainer
+from .utils import json_safe
+
+
+class XAIService:
+    def __init__(self, artifact_root: str | Path):
+        self.config = XAIArtifactConfig(artifact_root=Path(artifact_root))
+        self.surrogate_explainer = SurrogateExplainer(self.config)
+        self.policy_explainer = PolicyExplainer(self.config)
+        self.trajectory_explainer = TrajectoryExplainer()
+        self.counterfactual_explainer = CounterfactualExplainer()
+        self.llm_payload_builder = LLMPayloadBuilder()
+
+    def explain_optimized_airfoil(
+        self,
+        algorithm: str,
+        user_input: dict,
+        trajectory: list[dict],
+        optimized_result: dict | None = None,
+        solver_fn=None,
+        top_k: int = 8,
+    ) -> dict:
+        try:
+            target_step = select_xai_target_step(trajectory, optimized_result)
+            feature_row = build_feature_row(user_input, target_step)
+            surrogate_xai = self.surrogate_explainer.explain(feature_row, top_k)
+            policy_xai = self.policy_explainer.explain(algorithm, feature_row, top_k)
+            trajectory_xai = self.trajectory_explainer.explain(trajectory, target_step)
+            counterfactual_xai = self.counterfactual_explainer.explain(target_step, user_input, solver_fn)
+            llm_payload = self.llm_payload_builder.build(
+                algorithm,
+                target_step,
+                surrogate_xai,
+                policy_xai,
+                trajectory_xai,
+                counterfactual_xai,
+            )
+            return json_safe({
+                "available": True,
+                "algorithm": algorithm.lower(),
+                "target_step": target_step,
+                "surrogate_xai": surrogate_xai,
+                "policy_xai": policy_xai,
+                "trajectory_xai": trajectory_xai,
+                "counterfactual_xai": counterfactual_xai,
+                "llm_payload": llm_payload,
+            })
+        except Exception as exc:
+            return json_safe({
+                "available": False,
+                "reason": f"XAI analysis failed without interrupting optimization response: {exc}",
+                "algorithm": str(algorithm).lower(),
+                "target_step": optimized_result or {},
+                "surrogate_xai": {"available": False, "reason": "xai service failed"},
+                "policy_xai": {"available": False, "reason": "xai service failed"},
+                "trajectory_xai": {"available": False, "reason": "xai service failed"},
+                "counterfactual_xai": {"available": False, "reason": "xai service failed"},
+                "llm_payload": {},
+            })
